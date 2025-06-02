@@ -1,0 +1,36 @@
+# Dependencies
+/vendor/
+
+# Configuration (contains sensitive data)
+config/config.php
+
+# Generated files
+/output/
+/temp/
+/logs/
+
+# Background videos (can be large)
+/assets/backgrounds/*.mp4
+/assets/backgrounds/*.avi
+/assets/backgrounds/*.mov
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temporary test files
+test_*.txt
+*_test.txt
+edge_*.txt
+final_*.txt
+video_generation_*.txt
