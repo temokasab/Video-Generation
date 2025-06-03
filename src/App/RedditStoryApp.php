@@ -53,62 +53,80 @@ class RedditStoryApp
         $this->youtubeUploader = new YouTubeUploader($this->config, $this->logger);
     }
 
-    public function generateAndUploadVideo(string $channelKey = null): bool
+    public function generateAndUploadVideo(): bool
     {
         $this->logger->info('Starting video generation and upload process');
 
-        try {
-            // Generate story
-            $story = $this->storyGenerator->generateStory();
-            $this->logger->info('Generated story: ' . $story['title']);
+        $skipUpload = $this->config['automation']['skip_upload'] ?? false;
+        $channels = $this->youtubeUploader->getAllChannels();
+        $successCount = 0;
 
-            // Generate audio
-            $audioPath = $this->generateAudioFile($story);
-            if (!$audioPath) {
-                throw new \Exception('Failed to generate audio');
-            }
+        // Generate unique video for each channel
+        foreach ($channels as $index => $refreshToken) {
+            try {
+                $this->logger->info("Generating video " . ($index + 1) . "/" . count($channels) . " for channel");
 
-            // Generate video
-            $videoPath = $this->generateVideoFile($story, $audioPath);
-            if (!$videoPath) {
-                // Clean up audio file if video generation failed
-                if (file_exists($audioPath)) {
-                    unlink($audioPath);
-                    $this->logger->debug('Cleaned up audio file after video generation failure: ' . $audioPath);
+                // Generate story
+                $story = $this->storyGenerator->generateStory();
+                $this->logger->info('Generated story: ' . $story['title']);
+
+                // Generate audio
+                $audioPath = $this->generateAudioFile($story);
+                if (!$audioPath) {
+                    throw new \Exception('Failed to generate audio');
                 }
-                throw new \Exception('Failed to generate video');
-            }
 
-            // Generate thumbnail
-            $thumbnailPath = $this->generateThumbnailFile($videoPath);
+                // Generate video
+                $videoPath = $this->generateVideoFile($story, $audioPath);
+                if (!$videoPath) {
+                    // Clean up audio file if video generation failed
+                    if (file_exists($audioPath)) {
+                        unlink($audioPath);
+                        $this->logger->debug('Cleaned up audio file after video generation failure: ' . $audioPath);
+                    }
+                    throw new \Exception('Failed to generate video');
+                }
 
-            // Check if upload should be skipped
-            $skipUpload = $this->config['automation']['skip_upload'] ?? false;
+                // Generate thumbnail
+                $thumbnailPath = $this->generateThumbnailFile($videoPath);
 
-            $uploadSuccess = true; // Default to true when skipping upload
+                $uploadSuccess = true; // Default to true when skipping upload
 
-            if ($skipUpload) {
-                $this->logger->info('Upload skipped due to skip_upload configuration. Video saved to: ' . $videoPath);
-            } else {
-                // Upload to channels
-                if ($channelKey) {
-                    // Upload to specific channel
-                    $uploadSuccess = $this->uploadToChannel($channelKey, $videoPath, $story, $thumbnailPath);
+                if ($skipUpload) {
+                    $this->logger->info('Upload skipped due to skip_upload configuration. Video saved to: ' . $videoPath);
                 } else {
-                    // Upload to all available channels based on their schedules
-                    $uploadSuccess = $this->uploadToAvailableChannels($videoPath, $story, $thumbnailPath);
+                    // Check if we should upload now
+                    if ($this->youtubeUploader->shouldUploadNow()) {
+                        $uploadSuccess = $this->youtubeUploader->uploadToChannel($refreshToken, $videoPath, $story, $thumbnailPath);
+
+                        if ($uploadSuccess) {
+                            $this->youtubeUploader->incrementUploadCount();
+                            $this->logger->info('Successfully uploaded video for channel ' . ($index + 1));
+                        }
+                    } else {
+                        $this->logger->info('Upload skipped - not within upload schedule');
+                        $uploadSuccess = false;
+                    }
                 }
+
+                // Cleanup temporary files
+                $this->cleanupFiles([$audioPath, $thumbnailPath]);
+
+                if ($uploadSuccess) {
+                    $successCount++;
+                }
+            } catch (\Exception $e) {
+                $this->logger->error('Video generation failed for channel ' . ($index + 1) . ': ' . $e->getMessage());
             }
 
-            // Cleanup temporary files - now including the audio file
-            $this->cleanupFiles([$audioPath, $thumbnailPath]);
-            $this->logger->info('Cleaned up generated audio and thumbnail files');
-
-            return $uploadSuccess;
-        } catch (\Exception $e) {
-            $this->logger->error('Video generation and upload failed: ' . $e->getMessage());
-            return false;
+            // Small delay between channel videos (except for last one)
+            if ($index < count($channels) - 1) {
+                sleep(5);
+            }
         }
+
+        $this->logger->info("Video generation completed. Successfully processed {$successCount}/" . count($channels) . " channels");
+        return $successCount > 0;
     }
 
     private function generateAudioFile(array $story): ?string
@@ -145,44 +163,6 @@ class RedditStoryApp
         return $success ? $thumbnailPath : null;
     }
 
-    private function uploadToChannel(string $channelKey, string $videoPath, array $story, ?string $thumbnailPath): bool
-    {
-        if (!$this->youtubeUploader->shouldUploadNow($channelKey)) {
-            $this->logger->info("Channel {$channelKey} is not scheduled for upload at this time");
-            return false;
-        }
-
-        $success = $this->youtubeUploader->uploadToChannel($channelKey, $videoPath, $story, $thumbnailPath);
-
-        if ($success) {
-            $this->youtubeUploader->incrementUploadCount($channelKey);
-        }
-
-        return $success;
-    }
-
-    private function uploadToAvailableChannels(string $videoPath, array $story, ?string $thumbnailPath): bool
-    {
-        $channels = $this->youtubeUploader->getAllChannels();
-        $uploadSuccess = false;
-
-        foreach ($channels as $channelKey) {
-            if ($this->youtubeUploader->shouldUploadNow($channelKey)) {
-                $success = $this->youtubeUploader->uploadToChannel($channelKey, $videoPath, $story, $thumbnailPath);
-
-                if ($success) {
-                    $this->youtubeUploader->incrementUploadCount($channelKey);
-                    $uploadSuccess = true;
-
-                    // Only upload to one channel per video generation
-                    break;
-                }
-            }
-        }
-
-        return $uploadSuccess;
-    }
-
     private function cleanupFiles(array $files): void
     {
         foreach ($files as $file) {
@@ -202,47 +182,43 @@ class RedditStoryApp
             return;
         }
 
-        $maxVideos = $this->config['automation']['max_videos_per_run'];
+        $maxVideosPerChannel = $this->config['automation']['max_videos_per_run'];
+        $channelCount = $this->youtubeUploader->getChannelCount();
+        $totalVideos = $maxVideosPerChannel * $channelCount;
         $generated = 0;
         $skipUpload = $this->config['automation']['skip_upload'] ?? false;
 
-        while ($generated < $maxVideos) {
-            // Check if any channel needs content (skip this check if uploads are disabled)
-            if (!$skipUpload) {
-                $channelNeedsContent = false;
-                foreach ($this->youtubeUploader->getAllChannels() as $channelKey) {
-                    if ($this->youtubeUploader->shouldUploadNow($channelKey)) {
-                        $channelNeedsContent = true;
-                        break;
-                    }
-                }
+        $this->logger->info("Planning to generate {$maxVideosPerChannel} videos per channel ({$channelCount} channels) = {$totalVideos} total videos");
 
-                if (!$channelNeedsContent) {
-                    $this->logger->info('No channels need content at this time');
-                    break;
-                }
-            } else {
-                $this->logger->info('Upload disabled, generating video ' . ($generated + 1) . '/' . $maxVideos);
+        for ($run = 0; $run < $maxVideosPerChannel; $run++) {
+            // Check if we should continue uploading (skip this check if uploads are disabled)
+            if (!$skipUpload && !$this->youtubeUploader->shouldUploadNow()) {
+                $this->logger->info('Upload schedule limit reached or outside upload hours');
+                break;
             }
 
-            // Generate and upload video
+            $this->logger->info('Starting generation run ' . ($run + 1) . '/' . $maxVideosPerChannel);
+
+            // Generate videos for all channels
             $success = $this->generateAndUploadVideo();
 
             if ($success) {
-                $generated++;
-                $this->logger->info("Successfully generated video {$generated}/{$maxVideos}");
+                $generated += $channelCount; // Each successful run generates videos for all channels
+                $this->logger->info("Successfully completed run " . ($run + 1) . ". Total videos generated: {$generated}");
             } else {
-                $this->logger->error("Failed to generate video " . ($generated + 1));
+                $this->logger->error("Failed generation run " . ($run + 1));
 
                 // Wait before retrying
                 sleep($this->config['automation']['retry_delay']);
             }
 
-            // Small delay between generations
-            sleep(30);
+            // Delay between runs (except for last run)
+            if ($run < $maxVideosPerChannel - 1) {
+                sleep(60); // 1 minute between runs
+            }
         }
 
-        $this->logger->info("Automation run completed. Generated {$generated} videos.");
+        $this->logger->info("Automation completed. Generated {$generated} total videos across all channels.");
 
         // Cleanup old videos if enabled
         if ($this->config['automation']['cleanup_old_videos']) {
@@ -273,21 +249,20 @@ class RedditStoryApp
 
     public function getStatus(): array
     {
+        $channels = $this->youtubeUploader->getAllChannels();
+
         $status = [
             'app_version' => '1.0.0',
             'automation_enabled' => $this->config['automation']['enabled'],
-            'channels' => [],
-            'last_run' => null
+            'channel_count' => count($channels),
+            'should_upload_now' => $this->youtubeUploader->shouldUploadNow(),
+            'upload_schedule' => $this->youtubeUploader->getUploadSchedule(),
+            'upload_history' => $this->youtubeUploader->getUploadHistory(7),
+            'daily_limit' => [
+                'videos_per_channel' => $this->config['youtube']['upload_schedule']['posts_per_day'],
+                'total_videos' => $this->config['youtube']['upload_schedule']['posts_per_day'] * count($channels)
+            ]
         ];
-
-        // Get channel status
-        foreach ($this->youtubeUploader->getAllChannels() as $channelKey) {
-            $status['channels'][$channelKey] = [
-                'name' => $this->config['youtube']['channels'][$channelKey]['name'],
-                'should_upload_now' => $this->youtubeUploader->shouldUploadNow($channelKey),
-                'upload_history' => $this->youtubeUploader->getUploadHistory($channelKey, 7)
-            ];
-        }
 
         return $status;
     }

@@ -11,7 +11,7 @@ $config = require 'config/config.php';
 $app = new RedditStoryApp($config);
 
 // Parse command line arguments
-$options = getopt('c:t', ['channel:', 'test']);
+$options = getopt('t', ['test']);
 
 if (isset($options['t']) || isset($options['test'])) {
     // Test configuration
@@ -43,27 +43,20 @@ if (isset($options['t']) || isset($options['test'])) {
     exit(0);
 }
 
-// Get channel parameter
-$channelKey = $options['c'] ?? $options['channel'] ?? null;
-
 echo "Reddit Story Shorts Generator\n";
 echo "============================\n\n";
 
-if ($channelKey) {
-    echo "Generating video for channel: {$channelKey}\n";
-} else {
-    echo "Generating video for available channels based on schedule\n";
-}
-
+$channelCount = count($config['youtube']['channels']);
+echo "Generating unique videos for {$channelCount} channels...\n";
 echo "Starting video generation process...\n\n";
 
-// Generate and upload video
-$success = $app->generateAndUploadVideo($channelKey);
+// Generate and upload videos for all channels
+$success = $app->generateAndUploadVideo();
 
 if ($success) {
-    echo "Video generated and uploaded successfully!\n";
+    echo "Videos generated successfully!\n";
     exit(0);
 } else {
-    echo "Failed to generate or upload video. Check logs for details.\n";
+    echo "Failed to generate videos. Check logs for details.\n";
     exit(1);
 }

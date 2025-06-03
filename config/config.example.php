@@ -83,32 +83,14 @@ return [
 
     // YouTube Settings
     'youtube' => [
-        'channels' => [
-            'channel_1' => [
-                'name' => 'Reddit Stories Daily',
-                'client_id' => '', // Google Client ID
-                'client_secret' => '', // Google Client Secret
-                'refresh_token' => '', // Refresh token
-                'upload_schedule' => [
-                    'posts_per_day' => 10,
-                    'start_hour' => 6,
-                    'end_hour' => 22,
-                    'timezone' => 'America/New_York'
-                ]
-            ]
-            // Add channel_2 here if needed:
-            // 'channel_2' => [
-            //     'name' => 'Reddit Stories Plus',
-            //     'client_id' => 'YOUR_GOOGLE_CLIENT_ID_2',
-            //     'client_secret' => 'YOUR_GOOGLE_CLIENT_SECRET_2',
-            //     'refresh_token' => 'YOUR_REFRESH_TOKEN_2',
-            //     'upload_schedule' => [
-            //         'posts_per_day' => 8,
-            //         'start_hour' => 7,
-            //         'end_hour' => 21,
-            //         'timezone' => 'America/New_York'
-            //     ]
-            // ]
+        // Common settings for all channels
+        'client_id' => '', // Google Client ID
+        'client_secret' => '', // Google Client Secret
+        'upload_schedule' => [
+            'posts_per_day' => 10,
+            'start_hour' => 6,
+            'end_hour' => 22,
+            'timezone' => 'America/New_York'
         ],
         'default_settings' => [
             'privacy_status' => 'public',
@@ -123,6 +105,13 @@ return [
                 'reddit drama'
             ],
             'description_template' => "CRAZY Reddit Story!\n\n#RedditStories #Shorts #Reddit #Drama #Stories"
+        ],
+        // Array of refresh tokens for each channel
+        'channels' => [
+            'YOUR_REFRESH_TOKEN_1'
+            // Add more refresh tokens here for additional channels:
+            // 'YOUR_REFRESH_TOKEN_2',
+            // 'YOUR_REFRESH_TOKEN_3',
         ]
     ],
 

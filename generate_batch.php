@@ -5,26 +5,23 @@ require_once 'vendor/autoload.php';
 use RedditStoryShorts\App\RedditStoryApp;
 
 // Parse command line arguments
-$options = getopt('n:c:h', ['count:', 'channel:', 'help', 'skip-upload', 'upload']);
+$options = getopt('n:h', ['count:', 'help', 'skip-upload', 'upload']);
 
 if (isset($options['h']) || isset($options['help'])) {
     showHelp();
     exit(0);
 }
 
-// Get number of videos to generate
+// Get number of videos to generate per channel
 $count = $options['n'] ?? $options['count'] ?? null;
 
 if (!$count || !is_numeric($count) || $count < 1) {
-    echo "Error: Please specify a valid number of videos to generate.\n\n";
+    echo "Error: Please specify a valid number of videos to generate per channel.\n\n";
     showHelp();
     exit(1);
 }
 
 $count = (int)$count;
-
-// Get channel parameter (optional)
-$channelKey = $options['c'] ?? $options['channel'] ?? null;
 
 // Load configuration
 $config = require 'config/config.php';
@@ -44,13 +41,13 @@ $app = new RedditStoryApp($config);
 echo "Reddit Story Batch Generator\n";
 echo "===============================\n\n";
 
+$channelCount = count($config['youtube']['channels']);
+$totalVideos = $count * $channelCount;
+
 echo "Generation Settings:\n";
-echo "  • Videos to generate: $count\n";
-if ($channelKey) {
-    echo "  • Target channel: $channelKey\n";
-} else {
-    echo "  • Channel selection: Auto (based on schedule)\n";
-}
+echo "  • Videos per channel: $count\n";
+echo "  • Number of channels: $channelCount\n";
+echo "  • Total videos: $totalVideos\n";
 echo "  • Upload mode: " . ($skipUpload ? "Skip (save to output/ only)" : "Upload to YouTube") . "\n";
 echo "\n";
 
@@ -62,20 +59,20 @@ echo "Starting batch generation...\n";
 echo "================================\n\n";
 
 for ($i = 1; $i <= $count; $i++) {
-    echo "[Video $i/$count] Generating... ";
+    echo "[Run $i/$count] Generating $channelCount videos... ";
 
     try {
-        $success = $app->generateAndUploadVideo($channelKey);
+        $success = $app->generateAndUploadVideo();
 
         if ($success) {
-            $successful++;
+            $successful += $channelCount;
             echo "Success\n";
         } else {
-            $failed++;
+            $failed += $channelCount;
             echo "Failed\n";
         }
     } catch (Exception $e) {
-        $failed++;
+        $failed += $channelCount;
         echo "Error: " . $e->getMessage() . "\n";
     }
 
@@ -85,8 +82,8 @@ for ($i = 1; $i <= $count; $i++) {
 
     // Small delay between generations (except for last video)
     if ($i < $count) {
-        echo "    Waiting 10 seconds before next video...\n\n";
-        sleep(10);
+        echo "    Waiting 30 seconds before next run...\n\n";
+        sleep(30);
     }
 }
 
@@ -98,10 +95,11 @@ $seconds = $duration % 60;
 echo "\nBatch Generation Complete!\n";
 echo "=============================\n";
 echo "Results:\n";
-echo "  • Total videos: $count\n";
+echo "  • Total runs: $count\n";
+echo "  • Total videos: $totalVideos\n";
 echo "  • Successful: $successful\n";
 echo "  • Failed: $failed\n";
-echo "  • Success rate: " . round(($successful / $count) * 100) . "%\n";
+echo "  • Success rate: " . round(($successful / $totalVideos) * 100) . "%\n";
 echo "  • Duration: {$minutes}m {$seconds}s\n";
 
 if ($successful > 0) {
@@ -118,7 +116,7 @@ if ($failed > 0) {
 
 echo "\nTips:\n";
 echo "  • Use --skip-upload to generate without uploading\n";
-echo "  • Use --channel=channel_1 to target specific channel\n";
+echo "  • Each run generates unique videos for all {$channelCount} channels\n";
 echo "  • Check output/ directory for generated videos\n";
 
 function showHelp()
@@ -130,23 +128,22 @@ function showHelp()
     echo "  php generate_batch.php -n <count> [options]\n\n";
 
     echo "Required:\n";
-    echo "  -n, --count <number>     Number of videos to generate\n\n";
+    echo "  -n, --count <number>     Number of video sets to generate (each set = 1 video per channel)\n\n";
 
     echo "Options:\n";
-    echo "  -c, --channel <key>      Target specific channel (e.g., channel_1)\n";
     echo "  --skip-upload            Generate videos without uploading to YouTube\n";
     echo "  --upload                 Force upload to YouTube (override config)\n";
     echo "  -h, --help               Show this help message\n\n";
 
     echo "Examples:\n";
-    echo "  php generate_batch.php -n 5                    # Generate 5 videos\n";
-    echo "  php generate_batch.php -n 10 --skip-upload     # Generate 10 videos, no upload\n";
-    echo "  php generate_batch.php -n 3 -c channel_1       # Generate 3 videos for channel_1\n";
-    echo "  php generate_batch.php --count 8 --upload      # Generate 8 videos, force upload\n\n";
+    echo "  php generate_batch.php -n 5                    # Generate 5 video sets\n";
+    echo "  php generate_batch.php -n 10 --skip-upload     # Generate 10 sets, no upload\n";
+    echo "  php generate_batch.php --count 8 --upload      # Generate 8 sets, force upload\n\n";
 
     echo "Notes:\n";
-    echo "  • Videos are generated with 10-second intervals\n";
+    echo "  • Each 'set' generates unique videos for ALL channels\n";
+    echo "  • If you have 3 channels and run with -n 5, you get 15 total videos\n";
+    echo "  • Video sets are generated with 30-second intervals\n";
     echo "  • Check output/ directory for generated videos\n";
     echo "  • Check logs/app.log for detailed error messages\n";
-    echo "  • Respects skip_upload setting in config unless overridden\n";
 }

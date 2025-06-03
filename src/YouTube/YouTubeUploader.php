@@ -20,13 +20,12 @@ class YouTubeUploader
         $this->logger = $logger;
     }
 
-    public function uploadToChannel(string $channelKey, string $videoPath, array $story, ?string $thumbnailPath = null): bool
+    public function uploadToChannel(string $refreshToken, string $videoPath, array $story, ?string $thumbnailPath = null): bool
     {
-        $this->logger->info("Uploading video to channel: {$channelKey}");
+        $this->logger->info("Uploading video using refresh token: " . substr($refreshToken, 0, 20) . "...");
 
         try {
-            $channelConfig = $this->config['youtube']['channels'][$channelKey];
-            $client = $this->createGoogleClient($channelConfig);
+            $client = $this->createGoogleClient($refreshToken);
             $youtube = new YouTube($client);
 
             // Prepare video metadata
@@ -63,21 +62,21 @@ class YouTubeUploader
 
             return false;
         } catch (\Exception $e) {
-            $this->logger->error("Failed to upload video to channel {$channelKey}: " . $e->getMessage());
+            $this->logger->error("Failed to upload video: " . $e->getMessage());
             return false;
         }
     }
 
-    private function createGoogleClient(array $channelConfig): Client
+    private function createGoogleClient(string $refreshToken): Client
     {
         $client = new Client();
-        $client->setClientId($channelConfig['client_id']);
-        $client->setClientSecret($channelConfig['client_secret']);
+        $client->setClientId($this->config['youtube']['client_id']);
+        $client->setClientSecret($this->config['youtube']['client_secret']);
         $client->setAccessType('offline');
         $client->setScopes([YouTube::YOUTUBE_UPLOAD, YouTube::YOUTUBE]);
 
         // Use refresh token to get access token
-        $client->refreshToken($channelConfig['refresh_token']);
+        $client->refreshToken($refreshToken);
 
         return $client;
     }
@@ -194,18 +193,22 @@ class YouTubeUploader
 
     public function getAllChannels(): array
     {
-        return array_keys($this->config['youtube']['channels']);
+        return $this->config['youtube']['channels'];
     }
 
-    public function getChannelUploadSchedule(string $channelKey): array
+    public function getChannelCount(): int
     {
-        $channelConfig = $this->config['youtube']['channels'][$channelKey];
-        return $channelConfig['upload_schedule'] ?? [];
+        return count($this->config['youtube']['channels']);
     }
 
-    public function shouldUploadNow(string $channelKey): bool
+    public function getUploadSchedule(): array
     {
-        $schedule = $this->getChannelUploadSchedule($channelKey);
+        return $this->config['youtube']['upload_schedule'];
+    }
+
+    public function shouldUploadNow(): bool
+    {
+        $schedule = $this->getUploadSchedule();
 
         if (empty($schedule)) {
             return false;
@@ -223,18 +226,20 @@ class YouTubeUploader
             return false;
         }
 
-        // Check if we've already reached the daily upload limit
+        // Check if we've already reached the daily upload limit for ALL channels
         $postsPerDay = $schedule['posts_per_day'] ?? 1;
-        $todayUploads = $this->getTodayUploadCount($channelKey);
+        $channelCount = $this->getChannelCount();
+        $totalDailyLimit = $postsPerDay * $channelCount;
 
-        return $todayUploads < $postsPerDay;
+        $todayUploads = $this->getTodayUploadCount();
+
+        return $todayUploads < $totalDailyLimit;
     }
 
-    private function getTodayUploadCount(string $channelKey): int
+    private function getTodayUploadCount(): int
     {
-        // This would typically check a database or log file
-        // For now, we'll implement a simple file-based counter
-        $counterFile = $this->config['paths']['logs'] . "uploads_{$channelKey}_" . date('Y-m-d') . '.count';
+        // Count total uploads across all channels today
+        $counterFile = $this->config['paths']['logs'] . "uploads_total_" . date('Y-m-d') . '.count';
 
         if (file_exists($counterFile)) {
             return (int)file_get_contents($counterFile);
@@ -243,20 +248,20 @@ class YouTubeUploader
         return 0;
     }
 
-    public function incrementUploadCount(string $channelKey): void
+    public function incrementUploadCount(): void
     {
-        $counterFile = $this->config['paths']['logs'] . "uploads_{$channelKey}_" . date('Y-m-d') . '.count';
-        $currentCount = $this->getTodayUploadCount($channelKey);
+        $counterFile = $this->config['paths']['logs'] . "uploads_total_" . date('Y-m-d') . '.count';
+        $currentCount = $this->getTodayUploadCount();
         file_put_contents($counterFile, $currentCount + 1);
     }
 
-    public function getUploadHistory(string $channelKey, int $days = 7): array
+    public function getUploadHistory(int $days = 7): array
     {
         $history = [];
 
         for ($i = 0; $i < $days; $i++) {
             $date = date('Y-m-d', strtotime("-{$i} days"));
-            $counterFile = $this->config['paths']['logs'] . "uploads_{$channelKey}_{$date}.count";
+            $counterFile = $this->config['paths']['logs'] . "uploads_total_{$date}.count";
 
             $count = 0;
             if (file_exists($counterFile)) {

@@ -5,10 +5,10 @@ echo "===============================\n\n";
 
 // Get credentials from config
 $config = include __DIR__ . '/config/config.php';
-$clientId = $config['youtube']['channels']['channel_1']['client_id'];
-$clientSecret = $config['youtube']['channels']['channel_1']['client_secret'];
+$clientId = $config['youtube']['client_id'];
+$clientSecret = $config['youtube']['client_secret'];
 
-if ($clientId === 'YOUR_GOOGLE_CLIENT_ID' || $clientSecret === 'YOUR_GOOGLE_CLIENT_SECRET') {
+if (empty($clientId) || empty($clientSecret)) {
     echo "Please update your Google Client ID and Client Secret in config/config.php first!\n";
     exit(1);
 }
@@ -95,8 +95,15 @@ echo "Tokens received successfully!\n\n";
 
 echo "STEP 3: Update Configuration\n";
 echo "===============================\n";
-echo "Add this refresh token to your config/config.php:\n\n";
-echo "'refresh_token' => '" . $refreshToken . "',\n\n";
+echo "Add this refresh token to your config/config.php channels array:\n\n";
+echo "// In the 'channels' array, add:\n";
+echo "'" . $refreshToken . "',\n\n";
+echo "Example:\n";
+echo "'channels' => [\n";
+echo "    'EXISTING_TOKEN_1',\n";
+echo "    '" . $refreshToken . "',  // <- Add this line\n";
+echo "    // Add more tokens for additional channels\n";
+echo "]\n\n";
 
 echo "STEP 4: Test Upload Permissions\n";
 echo "==================================\n";
@@ -127,4 +134,5 @@ if ($testResponse !== false) {
 
 echo "\nSetup Complete!\n";
 echo "==================\n";
-echo "Now update your config/config.php with the refresh token above and try generating videos again!\n";
+echo "Now update your config/config.php with the refresh token above.\n";
+echo "You can repeat this process for additional channels to add more tokens to the array.\n";
