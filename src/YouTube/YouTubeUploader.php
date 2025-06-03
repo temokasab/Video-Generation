@@ -44,6 +44,7 @@ class YouTubeUploader
             $videoSnippet->setCategoryId($this->config['youtube']['default_settings']['category_id']);
 
             $videoStatus->setPrivacyStatus($this->config['youtube']['default_settings']['privacy_status']);
+            $videoStatus->setSelfDeclaredMadeForKids($this->config['youtube']['default_settings']['made_for_kids']);
 
             $video->setSnippet($videoSnippet);
             $video->setStatus($videoStatus);

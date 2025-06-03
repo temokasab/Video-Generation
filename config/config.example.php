@@ -95,6 +95,7 @@ return [
         'default_settings' => [
             'privacy_status' => 'public',
             'category_id' => '24',
+            'made_for_kids' => false,
             'tags' => [
                 'reddit stories',
                 'reddit',
